@@ -11,7 +11,7 @@ import os
 import queue
 import tempfile
 from typing import Dict, Tuple
-from zipfile import ZipFile
+import zipfile
 
 import betfairlightweight as bfl
 from betfairlightweight.filters import (
@@ -283,6 +283,7 @@ def data_collection_pipeline() -> str:
             'price',
             'size',
             'side',
+            'selection_status',
             'market_status',
             'in_play'
         ]
@@ -310,6 +311,7 @@ def data_collection_pipeline() -> str:
                 rows = []
                 for runner in market_book.runners:
                     selection_id = runner.selection_id
+                    selection_status = runner.status
 
                     for back in runner.ex.available_to_back:
                         rows.append(
@@ -319,6 +321,7 @@ def data_collection_pipeline() -> str:
                                 back.price,
                                 back.size,
                                 'back',
+                                selection_status,
                                 market_status,
                                 market_inplay
                             )
@@ -332,6 +335,7 @@ def data_collection_pipeline() -> str:
                                 lay.price,
                                 lay.size,
                                 'lay',
+                                selection_status,
                                 market_status,
                                 market_inplay
                             )
@@ -354,7 +358,7 @@ def data_collection_pipeline() -> str:
     trading.logout()
 
     logger.info("Compressing the CSV file into ZIP file %s", output_zip_file)
-    with ZipFile(output_zip_file, 'w') as zip_f:
+    with zipfile.ZipFile(output_zip_file, 'w', zipfile.ZIP_DEFLATED) as zip_f:
         zip_f.write(output_csv_file, os.path.basename(output_csv_file))
 
     return output_csv_file
