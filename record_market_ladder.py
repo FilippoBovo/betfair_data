@@ -11,6 +11,7 @@ import os
 import queue
 import tempfile
 from typing import Dict, Tuple
+from zipfile import ZipFile
 
 import betfairlightweight as bfl
 from betfairlightweight.filters import (
@@ -30,7 +31,7 @@ cert_file = os.environ['BETFAIR_CERT_FILE']
 cert_key_file = os.environ['BETFAIR_CERT_KEY_FILE']
 
 
-def parse_command_line_args() -> Tuple[str, str, int]:
+def parse_command_line_args() -> Tuple[str, str, int, bool, bool]:
     """Parse command line arguments.
 
     Returns:
@@ -38,7 +39,12 @@ def parse_command_line_args() -> Tuple[str, str, int]:
     """
     parser = argparse.ArgumentParser(
         description='A script that reads the live Betfair market ladder for a '
-                    'certain market ID and saves the odds in a CSV file.'
+                    'certain market ID and saves the odds in a CSV file. The '
+                    'market ladder will have virtual bets by default. This can '
+                    'be disabled with flag --no-virtual. With virtual bets '
+                    'there can be only be ten back prices and ten lay prices. '
+                    'If --no-virtual is used, the full market ladder will be '
+                    'downloaded.'
     )
     parser.add_argument('market_id', help='Betfair market ID.')
     parser.add_argument(
@@ -56,9 +62,30 @@ def parse_command_line_args() -> Tuple[str, str, int]:
         help='Conflation rate in milliseconds (bounds are 0 to 120000).'
              'The default value is 50 milliseconds.'
     )
+    parser.add_argument(
+        '--no-virtual-bets',
+        dest='no_virtual_bets',
+        action='store_true',
+        help='Disable virtual bets. Without virtual bets, the whole ladder of '
+             'prices available to back or lay will be downloaded.'
+    )
+    parser.add_argument(
+        '--in-play',
+        dest='allow_inplay',
+        action='store_true',
+        help='Allow streaming in-play. By default, the data stream stops when '
+             'an event turns in-play. To allow the stream to run until the end '
+             'of the event, use this flat.'
+    )
     args = parser.parse_args()
 
-    return args.market_id, args.output_dir, args.conflate_ms
+    return (
+        args.market_id,
+        args.output_dir,
+        args.conflate_ms,
+        args.no_virtual_bets,
+        args.allow_inplay
+    )
 
 
 def get_event_info(
@@ -170,8 +197,7 @@ def get_output_file_name(
         event_formatted + '_' +
         competition_formatted + '_' +
         market_name_formatted + '_' +
-        market_start_time_formatted +
-        '.csv'
+        market_start_time_formatted
     )
 
     return file_name
@@ -189,7 +215,8 @@ def data_collection_pipeline() -> str:
         # stream=sys.stdout
     )
 
-    market_id, output_dir, conflate_ms = parse_command_line_args()
+    market_id, output_dir, conflate_ms, no_virtual_bets, allow_inplay = \
+        parse_command_line_args()
 
     trading = bfl.APIClient(
         username=username,
@@ -211,7 +238,8 @@ def data_collection_pipeline() -> str:
     output_file_name = get_output_file_name(
         event_type, event, competition, market_name, market_start_time
     )
-    output_file = os.path.join(output_dir, output_file_name)
+    output_csv_file = os.path.join(output_dir, output_file_name + '.csv')
+    output_zip_file = os.path.join(output_dir, output_file_name + '.zip')
 
     # Market stream
     logger.info("Initialising output queue")
@@ -227,8 +255,12 @@ def data_collection_pipeline() -> str:
     market_filter = streaming_market_filter(market_ids=[market_id])
 
     logger.info("Initialising streaming market data filter")
+    if no_virtual_bets:
+        market_data_fields = ['EX_MARKET_DEF', 'EX_ALL_OFFERS']
+    else:
+        market_data_fields = ['EX_MARKET_DEF', 'EX_BEST_OFFERS_DISP']
     market_data_filter = streaming_market_data_filter(
-        fields=['EX_MARKET_DEF', 'EX_ALL_OFFERS', 'EX_TRADED'],
+        fields=market_data_fields,
     )
 
     logger.info("Subscribing to the market")
@@ -241,8 +273,8 @@ def data_collection_pipeline() -> str:
     logger.info("Starting the stream")
     stream.start(async_=True)
 
-    logger.info(f"Saving data in file {output_file}")
-    with open(output_file, 'w') as f:
+    logger.info(f"Saving data in file {output_csv_file}")
+    with open(output_csv_file, 'w') as f:
         f_csv = csv.writer(f)
 
         csv_header = [
@@ -250,7 +282,9 @@ def data_collection_pipeline() -> str:
             'time',
             'price',
             'size',
-            'side'
+            'side',
+            'market_status',
+            'in_play'
         ]
         f_csv.writerow(csv_header)
 
@@ -261,7 +295,17 @@ def data_collection_pipeline() -> str:
                 market_books = output_queue.get()
                 market_book = market_books[0]
 
+                market_status = market_book.status
+                market_inplay = market_book.inplay
                 publish_time = market_book.publish_time
+
+                # Stop the stream if the conditions are met
+                if allow_inplay:
+                    if market_status == 'CLOSED':
+                        break
+                else:
+                    if market_status == 'CLOSED' or market_inplay == True:
+                        break
 
                 rows = []
                 for runner in market_book.runners:
@@ -274,7 +318,9 @@ def data_collection_pipeline() -> str:
                                 publish_time,
                                 back.price,
                                 back.size,
-                                'back'
+                                'back',
+                                market_status,
+                                market_inplay
                             )
                         )
 
@@ -285,7 +331,9 @@ def data_collection_pipeline() -> str:
                                 publish_time,
                                 lay.price,
                                 lay.size,
-                                'lay'
+                                'lay',
+                                market_status,
+                                market_inplay
                             )
                         )
 
@@ -298,11 +346,18 @@ def data_collection_pipeline() -> str:
                 logger.info("Exiting program (Keyboard interrupt)")
                 break
 
-    logger.info("Stopping the stream and logging out from Betfair.")
+    logger.info(
+        "Stopping the stream and logging out from Betfair. This may take a few "
+        "seconds."
+    )
     stream.stop()
     trading.logout()
 
-    return output_file
+    logger.info("Compressing the CSV file into ZIP file %s", output_zip_file)
+    with ZipFile(output_zip_file, 'w') as zip_f:
+        zip_f.write(output_csv_file, os.path.basename(output_csv_file))
+
+    return output_csv_file
 
 
 if __name__ == "__main__":
