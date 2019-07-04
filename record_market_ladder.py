@@ -184,10 +184,10 @@ def get_output_file_name(
     Returns:
         Name of the output CSV file.
     """
-    event_type_formatted = event_type.replace(' ', '-')
-    event_formatted = event.replace(' ', '-')
-    competition_formatted = competition.replace(' ', '-')
-    market_name_formatted = market_name.replace(' ', '-')
+    event_type_formatted = event_type.replace(' ', '-').replace('/', '-')
+    event_formatted = event.replace(' ', '-').replace('/', '-')
+    competition_formatted = competition.replace(' ', '-').replace('/', '-')
+    market_name_formatted = market_name.replace(' ', '-').replace('/', '-')
     market_start_time_formatted = datetime.strftime(
         market_start_time, '%Y-%m-%dT%H-%M-%S'
     )
