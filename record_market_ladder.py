@@ -5,11 +5,12 @@ Betfair.
 
 import argparse
 import csv
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 import os
 import queue
 import tempfile
+import time
 from typing import Dict, Tuple
 import zipfile
 
@@ -31,7 +32,7 @@ cert_file = os.environ['BETFAIR_CERT_FILE']
 cert_key_file = os.environ['BETFAIR_CERT_KEY_FILE']
 
 
-def parse_command_line_args() -> Tuple[str, str, int, bool, bool]:
+def parse_command_line_args() -> Tuple[str, str, int, bool, bool, int]:
     """Parse command line arguments.
 
     Returns:
@@ -77,6 +78,14 @@ def parse_command_line_args() -> Tuple[str, str, int, bool, bool]:
              'an event turns in-play. To allow the stream to run until the end '
              'of the event, use this flat.'
     )
+    parser.add_argument(
+        '--mins-before-start',
+        dest='mins_before_start',
+        type=int,
+        default=None,
+        help='Amount of minutes to start streaming before the start of the '
+             'event.'
+    )
     args = parser.parse_args()
 
     return (
@@ -84,7 +93,8 @@ def parse_command_line_args() -> Tuple[str, str, int, bool, bool]:
         args.output_dir,
         args.conflate_ms,
         args.no_virtual_bets,
-        args.allow_inplay
+        args.allow_inplay,
+        args.mins_before_start
     )
 
 
@@ -137,7 +147,7 @@ def get_market_info(
     """Get the market information from a Betfair market ID.
 
     Args:
-        trading: Instance of ``betfairlightweight.apiclient.APIClient``.
+        trading: Instance of the betfairlightweight api client.
         market_id: ID of the Betfair market.
 
     Returns:
@@ -215,8 +225,8 @@ def data_collection_pipeline() -> str:
         # stream=sys.stdout
     )
 
-    market_id, output_dir, conflate_ms, no_virtual_bets, allow_inplay = \
-        parse_command_line_args()
+    market_id, output_dir, conflate_ms, no_virtual_bets, allow_inplay,\
+        mins_before_start = parse_command_line_args()
 
     trading = bfl.APIClient(
         username=username,
@@ -233,6 +243,26 @@ def data_collection_pipeline() -> str:
     market_name, market_start_time, selections = get_market_info(
         trading, market_id
     )
+
+    # Wait to stream until a certain amount of minutes before the start
+    if mins_before_start is not None:
+        logger.info(
+            "Waiting until %s minutes before the start of the event. Press "
+            "Ctrl+C to quit.",
+            mins_before_start
+        )
+        now = datetime.utcnow()
+        try:
+            while market_start_time - now >= timedelta(minutes=mins_before_start):
+                time.sleep(1)
+                now = datetime.utcnow()
+        except KeyboardInterrupt:
+            logger.info("Exiting program (Keyboard interrupt)")
+            trading.logout()
+            exit(0)
+        if trading.session_expired:
+            logger.info("Session expired. Logging in to Betfair again.")
+            trading.login()
 
     # Output file path
     output_file_name = get_output_file_name(
@@ -305,7 +335,7 @@ def data_collection_pipeline() -> str:
                     if market_status == 'CLOSED':
                         break
                 else:
-                    if market_status == 'CLOSED' or market_inplay == True:
+                    if market_status == 'CLOSED' or market_inplay is True:
                         break
 
                 rows = []
