@@ -390,6 +390,7 @@ def data_collection_pipeline() -> str:
     logger.info("Compressing the CSV file into ZIP file %s", output_zip_file)
     with zipfile.ZipFile(output_zip_file, 'w', zipfile.ZIP_DEFLATED) as zip_f:
         zip_f.write(output_csv_file, os.path.basename(output_csv_file))
+    os.remove(output_csv_file)
 
     return output_csv_file
 
