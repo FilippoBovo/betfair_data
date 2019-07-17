@@ -79,7 +79,7 @@ def parse_command_line_args() -> Tuple[str, str, int, bool, bool, int]:
              'of the event, use this flat.'
     )
     parser.add_argument(
-        '--mins-before-start',
+        '-b', '--mins-before-start',
         dest='mins_before_start',
         type=int,
         default=None,
