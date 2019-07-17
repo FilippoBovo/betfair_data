@@ -247,10 +247,13 @@ def data_collection_pipeline() -> str:
     # Wait to stream until a certain amount of minutes before the start
     if mins_before_start is not None:
         logger.info(
-            "Waiting until %s minutes before the start of the event. Press "
-            "Ctrl+C to quit.",
+            "Logging off from Betfair and waiting until %s minutes before the "
+            "start of the event. Press Ctrl+C to quit.",
             mins_before_start
         )
+
+        trading.logout()
+
         now = datetime.utcnow()
         try:
             while market_start_time - now >= timedelta(minutes=mins_before_start):
@@ -258,11 +261,10 @@ def data_collection_pipeline() -> str:
                 now = datetime.utcnow()
         except KeyboardInterrupt:
             logger.info("Exiting program (Keyboard interrupt)")
-            trading.logout()
             exit(0)
-        if trading.session_expired:
-            logger.info("Session expired. Logging in to Betfair again.")
-            trading.login()
+
+        logger.info("Logging in to Betfair again.")
+        trading.login()
 
     # Output file path
     output_file_name = get_output_file_name(
