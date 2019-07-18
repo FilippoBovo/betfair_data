@@ -15,6 +15,7 @@ from typing import Dict, Tuple
 import zipfile
 
 import betfairlightweight as bfl
+from betfairlightweight.exceptions import APIError
 from betfairlightweight.filters import (
     streaming_market_filter,
     streaming_market_data_filter,
@@ -387,7 +388,10 @@ def data_collection_pipeline() -> str:
         "seconds."
     )
     stream.stop()
-    trading.logout()
+    try:
+        trading.logout()
+    except APIError:
+        logger.warning("Failed to log out from Betfair: Connection error.")
 
     logger.info("Compressing the CSV file into ZIP file %s", output_zip_file)
     with zipfile.ZipFile(output_zip_file, 'w', zipfile.ZIP_DEFLATED) as zip_f:
