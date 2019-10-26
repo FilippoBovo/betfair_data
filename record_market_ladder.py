@@ -4,15 +4,14 @@ Betfair.
 """
 
 import argparse
-import csv
 from datetime import datetime, timedelta
 import logging
 import os
 import queue
+import sqlite3
 import tempfile
 import time
 from typing import Dict, Tuple
-import zipfile
 
 import betfairlightweight as bfl
 from betfairlightweight.exceptions import APIError
@@ -41,19 +40,19 @@ def parse_command_line_args() -> Tuple[str, str, int, bool, bool, int]:
     """
     parser = argparse.ArgumentParser(
         description='A script that reads the live Betfair market ladder for a '
-                    'certain market ID and saves the odds in a CSV file. The '
-                    'market ladder will have virtual bets by default. This can '
-                    'be disabled with flag --no-virtual. With virtual bets '
-                    'there can be only be ten back prices and ten lay prices. '
-                    'If --no-virtual is used, the full market ladder will be '
-                    'downloaded.'
+                    'certain market ID and saves the odds in an Sqlite file. '
+                    'The market ladder will have virtual bets by default. This'
+                    ' can be disabled with flag --no-virtual-bets. With '
+                    'virtual bets there can be only be ten back prices and ten'
+                    ' lay prices. If --no-virtual is used, the full market '
+                    'ladder will be downloaded.'
     )
     parser.add_argument('market_id', help='Betfair market ID.')
     parser.add_argument(
         '-o', '--output-dir',
         dest='output_dir',
         default=tempfile.gettempdir(),
-        help='Path of the directory where to save the output CSV file. '
+        help='Path of the directory where to save the output Sqlite file. '
              'The default path is to the system temporary directory.'
     )
     parser.add_argument(
@@ -76,8 +75,8 @@ def parse_command_line_args() -> Tuple[str, str, int, bool, bool, int]:
         dest='allow_inplay',
         action='store_true',
         help='Allow streaming in-play. By default, the data stream stops when '
-             'an event turns in-play. To allow the stream to run until the end '
-             'of the event, use this flat.'
+             'an event turns in-play. To allow the stream to run until the end'
+             ' of the event, use this flat.'
     )
     parser.add_argument(
         '-b', '--mins-before-start',
@@ -214,6 +213,200 @@ def get_output_file_name(
     return file_name
 
 
+def create_sqlite_database(
+        file: str
+) -> Tuple[sqlite3.Connection, sqlite3.Cursor]:
+    """Create an Sqlite database to store the data from Betfair.
+
+    The following tables are created in the database:
+
+    - market_status
+    - selection_status
+    - available_to_back
+    - available_to_lay
+    - traded_volume
+
+    Args:
+        file: Path of the Sqlite output file.
+
+    Returns:
+        Connection to the Sqlite database.
+    """
+    connection = sqlite3.connect(file)
+    cursor = connection.cursor()
+
+    # Table: market_status
+    cursor.execute(
+        "CREATE TABLE market_status ("
+        "    date_time CHARACTER(26) NOT NULL,"
+    	"    status VARCHAR(9) NOT NULL,"
+	    "    inplay BOOLEAN NOT NULL,"
+	    "    PRIMARY KEY (date_time)"
+        ")"
+    )
+
+    # Table: selection_status
+    cursor.execute(
+        "CREATE TABLE selection_status ("
+        "    date_time CHARACTER(26) NOT NULL,"
+        "    selection VARCHAR(255) NOT NULL,"
+        "    status VARCHAR(14) NOT NULL,"
+        "    PRIMARY KEY (date_time, selection)"
+        ")"
+    )
+
+    # Table: available_to_back
+    cursor.execute(
+        "CREATE TABLE available_to_back ("
+        "    date_time CHARACTER(26) NOT NULL,"
+        "    selection VARCHAR(255) NOT NULL,"
+        "    price NUMERIC(2) NOT NULL,"
+        "    size NUMERIC(2),"
+        "    PRIMARY KEY (date_time, selection, price)"
+        ")"
+    )
+
+    # Table: available_to_lay
+    cursor.execute(
+        "CREATE TABLE available_to_lay ("
+        "    date_time CHARACTER(26) NOT NULL,"
+        "    selection VARCHAR(255) NOT NULL,"
+        "    price NUMERIC(2) NOT NULL,"
+        "    size NUMERIC(2),"
+        "    PRIMARY KEY (date_time, selection, price)"
+        ")"
+    )
+
+    # Table: traded_volume
+    cursor.execute(
+        "CREATE TABLE traded_volume ("
+        "    date_time CHARACTER(26) NOT NULL,"
+        "    selection VARCHAR(255) NOT NULL,"
+        "    price NUMERIC(2) NOT NULL,"
+        "    size NUMERIC(2),"
+        "    PRIMARY KEY (date_time, selection, price)"
+        ")"
+    )
+
+    connection.commit()
+
+    return connection, cursor
+
+
+def insert_in_market_status_table(
+        cursor: sqlite3.Cursor, date_time: datetime, status: str, inplay: bool
+) -> None:
+    """Insert a row in the market_status table of the Sqlite database.
+
+    Args:
+        cursor: Sqlite database cursor.
+        date_time: Date and time of the market snapshot.
+        status: Market status.
+        inplay: Whether the market is inplay.
+    """
+    date_time_str = date_time.strftime("%Y-%m-%d %H:%M:%S.%f")
+    inplay_str = "TRUE" if inplay else "FALSE"
+
+    cursor.execute(
+        "INSERT INTO market_status VALUES ('{}', '{}', {})"
+        .format(date_time_str, status, inplay_str)
+    )
+
+
+def insert_in_selection_status_table(
+        cursor: sqlite3.Cursor,
+        date_time: datetime,
+        selection: str,
+        status: str
+) -> None:
+    """Insert a row in the selection_status table of the Sqlite database.
+
+    Args:
+        cursor: Sqlite database cursor.
+        date_time: Date and time of the market snapshot.
+        selection: Name of the market selection.
+        status: Selection status.
+    """
+    date_time_str = date_time.strftime("%Y-%m-%d %H:%M:%S.%f")
+
+    cursor.execute(
+        "INSERT INTO selection_status VALUES ('{}', '{}', '{}')"
+        .format(date_time_str, selection, status)
+    )
+
+
+def insert_in_available_to_back_table(
+        cursor: sqlite3.Cursor,
+        date_time: datetime,
+        selection: str,
+        price: float,
+        size: float
+) -> None:
+    """Insert a row in the available_to_back table of the Sqlite database.
+
+    Args:
+        cursor: Sqlite database cursor.
+        date_time: Date and time of the market snapshot.
+        selection: Name of the market selection.
+        price: Selection price.
+        size: Size of the selection price.
+    """
+    date_time_str = date_time.strftime("%Y-%m-%d %H:%M:%S.%f")
+
+    cursor.execute(
+        "INSERT INTO available_to_back VALUES ('{}', '{}', {:.2f}, {:.2f})"
+        .format(date_time_str, selection, price, size)
+    )
+
+
+def insert_in_available_to_lay_table(
+        cursor: sqlite3.Cursor,
+        date_time: datetime,
+        selection: str,
+        price: float,
+        size: float
+) -> None:
+    """Insert a row in the available_to_lay table of the Sqlite database.
+
+    Args:
+        cursor: Sqlite database cursor.
+        date_time: Date and time of the market snapshot.
+        selection: Name of the market selection.
+        price: Selection price.
+        size: Size of the selection price.
+    """
+    date_time_str = date_time.strftime("%Y-%m-%d %H:%M:%S.%f")
+
+    cursor.execute(
+        "INSERT INTO available_to_lay VALUES ('{}', '{}', {:.2f}, {:.2f})"
+        .format(date_time_str, selection, price, size)
+    )
+
+
+def insert_in_traded_volume_table(
+        cursor: sqlite3.Cursor,
+        date_time: datetime,
+        selection: str,
+        price: float,
+        size: float
+) -> None:
+    """Insert a row in the traded_volume table of the Sqlite database.
+
+    Args:
+        cursor: Sqlite database cursor.
+        date_time: Date and time of the market snapshot.
+        selection: Name of the market selection.
+        price: Selection price.
+        size: Size of the selection price.
+    """
+    date_time_str = date_time.strftime("%Y-%m-%d %H:%M:%S.%f")
+
+    cursor.execute(
+        "INSERT INTO traded_volume VALUES ('{}', '{}', {:.2f}, {:.2f})"
+        .format(date_time_str, selection, price, size)
+    )
+
+
 def data_collection_pipeline() -> str:
     """Pipeline to collect Betfair odds market ladder streaming data.
 
@@ -257,7 +450,8 @@ def data_collection_pipeline() -> str:
 
         now = datetime.utcnow()
         try:
-            while market_start_time - now >= timedelta(minutes=mins_before_start):
+            while market_start_time - now >= \
+                    timedelta(minutes=mins_before_start):
                 time.sleep(1)
                 now = datetime.utcnow()
         except KeyboardInterrupt:
@@ -271,8 +465,7 @@ def data_collection_pipeline() -> str:
     output_file_name = get_output_file_name(
         event_type, event, competition, market_name, market_start_time
     )
-    output_csv_file = os.path.join(output_dir, output_file_name + '.csv')
-    output_zip_file = os.path.join(output_dir, output_file_name + '.zip')
+    output_sqlite_file = os.path.join(output_dir, output_file_name + '.db')
 
     # Market stream
     logger.info("Initialising output queue")
@@ -289,9 +482,13 @@ def data_collection_pipeline() -> str:
 
     logger.info("Initialising streaming market data filter")
     if no_virtual_bets:
-        market_data_fields = ['EX_MARKET_DEF', 'EX_ALL_OFFERS']
+        market_data_fields = [
+            'EX_MARKET_DEF', 'EX_ALL_OFFERS', 'EX_TRADED'
+        ]
     else:
-        market_data_fields = ['EX_MARKET_DEF', 'EX_BEST_OFFERS_DISP']
+        market_data_fields = [
+            'EX_MARKET_DEF', 'EX_BEST_OFFERS_DISP', 'EX_TRADED'
+        ]
     market_data_filter = streaming_market_data_filter(
         fields=market_data_fields,
     )
@@ -306,99 +503,81 @@ def data_collection_pipeline() -> str:
     logger.info("Starting the stream")
     stream.start(async_=True)
 
-    logger.info(f"Saving data in file {output_csv_file}")
-    with open(output_csv_file, 'w') as f:
-        f_csv = csv.writer(f)
+    logger.info(f"Saving data in file {output_sqlite_file}")
+    connection, cursor = create_sqlite_database(output_sqlite_file)
 
-        csv_header = [
-            'selection',
-            'time',
-            'price',
-            'size',
-            'side',
-            'selection_status',
-            'market_status',
-            'in_play'
-        ]
-        f_csv.writerow(csv_header)
+    market_snapshot_no = 0
 
-        market_snapshot_no = 0
+    while True:
+        try:
+            market_books = output_queue.get()
+            market_book = market_books[0]
 
-        while True:
-            try:
-                market_books = output_queue.get()
-                market_book = market_books[0]
+            market_status = market_book.status
+            market_inplay = market_book.inplay
+            publish_time = market_book.publish_time
 
-                market_status = market_book.status
-                market_inplay = market_book.inplay
-                publish_time = market_book.publish_time
+            # Stop the stream if the conditions are met
+            if allow_inplay:
+                if market_status == 'CLOSED':
+                    break
+            else:
+                if market_status == 'CLOSED' or market_inplay is True:
+                    break
 
-                # Stop the stream if the conditions are met
-                if allow_inplay:
-                    if market_status == 'CLOSED':
-                        break
-                else:
-                    if market_status == 'CLOSED' or market_inplay is True:
-                        break
+            insert_in_market_status_table(
+                cursor, publish_time, market_status, market_inplay
+            )
 
-                rows = []
-                for runner in market_book.runners:
-                    selection_id = runner.selection_id
-                    selection_status = runner.status
+            for runner in market_book.runners:
+                selection = selections[runner.selection_id]
+                selection_status = runner.status
 
-                    for back in runner.ex.available_to_back:
-                        rows.append(
-                            (
-                                selections[selection_id],
-                                publish_time,
-                                back.price,
-                                back.size,
-                                'back',
-                                selection_status,
-                                market_status,
-                                market_inplay
-                            )
-                        )
+                insert_in_selection_status_table(
+                    cursor, publish_time, selection, selection_status
+                )
 
-                    for lay in runner.ex.available_to_lay:
-                        rows.append(
-                            (
-                                selections[selection_id],
-                                publish_time,
-                                lay.price,
-                                lay.size,
-                                'lay',
-                                selection_status,
-                                market_status,
-                                market_inplay
-                            )
-                        )
+                for back in runner.ex.available_to_back:
+                    insert_in_available_to_back_table(
+                        cursor, publish_time, selection, back.price, back.size
+                    )
 
-                f_csv.writerows(rows)
+                for lay in runner.ex.available_to_lay:
+                    insert_in_available_to_lay_table(
+                        cursor, publish_time, selection, lay.price, lay.size
+                    )
 
-                market_snapshot_no = market_snapshot_no + 1
-                logger.info("Market snapshot #%s stored.", market_snapshot_no)
+                for volume in runner.ex.traded_volume:
+                    insert_in_traded_volume_table(
+                        cursor,
+                        publish_time,
+                        selection,
+                        volume.price,
+                        volume.size
+                    )
 
-            except KeyboardInterrupt:
-                logger.info("Exiting program (Keyboard interrupt)")
-                break
+            connection.commit()
+
+            market_snapshot_no = market_snapshot_no + 1
+            logger.info("Market snapshot #%s stored.", market_snapshot_no)
+
+        except KeyboardInterrupt:
+            logger.info("Exiting program (Keyboard interrupt)")
+            break
 
     logger.info(
-        "Stopping the stream and logging out from Betfair. This may take a few "
-        "seconds."
+        "Stopping the stream and logging out from Betfair. This may take a few"
+        " seconds."
     )
     stream.stop()
     try:
         trading.logout()
     except APIError:
         logger.warning("Failed to log out from Betfair: Connection error.")
+    cursor.close()
+    connection.close()
 
-    logger.info("Compressing the CSV file into ZIP file %s", output_zip_file)
-    with zipfile.ZipFile(output_zip_file, 'w', zipfile.ZIP_DEFLATED) as zip_f:
-        zip_f.write(output_csv_file, os.path.basename(output_csv_file))
-    os.remove(output_csv_file)
-
-    return output_csv_file
+    return output_sqlite_file
 
 
 if __name__ == "__main__":
