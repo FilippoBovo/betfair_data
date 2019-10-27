@@ -309,7 +309,7 @@ def insert_in_market_status_table(
 
     cursor.execute(
         "INSERT INTO market_status ('date_time', 'status', 'inplay') "
-        "VALUES ('{}', '{}', {})"
+        "VALUES ('{}', '{}', '{}')"
         .format(date_time_str, status, inplay_str)
     )
 
