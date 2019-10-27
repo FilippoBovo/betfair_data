@@ -308,7 +308,8 @@ def insert_in_market_status_table(
     inplay_str = "TRUE" if inplay else "FALSE"
 
     cursor.execute(
-        "INSERT INTO market_status VALUES ('{}', '{}', {})"
+        "INSERT INTO market_status ('date_time', 'status', 'inplay') "
+        "VALUES ('{}', '{}', {})"
         .format(date_time_str, status, inplay_str)
     )
 
@@ -330,7 +331,8 @@ def insert_in_selection_status_table(
     date_time_str = date_time.strftime("%Y-%m-%d %H:%M:%S.%f")
 
     cursor.execute(
-        "INSERT INTO selection_status VALUES ('{}', '{}', '{}')"
+        "INSERT INTO selection_status ('date_time', 'selection', 'status') "
+        "VALUES ('{}', '{}', '{}')"
         .format(date_time_str, selection, status)
     )
 
@@ -354,7 +356,10 @@ def insert_in_available_to_back_table(
     date_time_str = date_time.strftime("%Y-%m-%d %H:%M:%S.%f")
 
     cursor.execute(
-        "INSERT INTO available_to_back VALUES ('{}', '{}', {:.2f}, {:.2f})"
+        "INSERT INTO available_to_back ("
+        "   'date_time', 'selection', 'price', 'size'"
+        ") "
+        "VALUES ('{}', '{}', {:.2f}, {:.2f})"
         .format(date_time_str, selection, price, size)
     )
 
@@ -378,7 +383,10 @@ def insert_in_available_to_lay_table(
     date_time_str = date_time.strftime("%Y-%m-%d %H:%M:%S.%f")
 
     cursor.execute(
-        "INSERT INTO available_to_lay VALUES ('{}', '{}', {:.2f}, {:.2f})"
+        "INSERT INTO available_to_lay ("
+        "   'date_time', 'selection', 'price', 'size'"
+        ") "
+        "VALUES ('{}', '{}', {:.2f}, {:.2f})"
         .format(date_time_str, selection, price, size)
     )
 
@@ -402,7 +410,10 @@ def insert_in_traded_volume_table(
     date_time_str = date_time.strftime("%Y-%m-%d %H:%M:%S.%f")
 
     cursor.execute(
-        "INSERT INTO traded_volume VALUES ('{}', '{}', {:.2f}, {:.2f})"
+        "INSERT INTO traded_volume ("
+        "   'date_time', 'selection', 'price', 'size'"
+        ") "
+        "VALUES ('{}', '{}', {:.2f}, {:.2f})"
         .format(date_time_str, selection, price, size)
     )
 
