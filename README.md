@@ -43,7 +43,7 @@ python record_market_ladder.py --help
 It is also possible to run several recording tasks in the background by using the following command.
 
 ```shell
-cat market_ids.txt | xargs -I market_id screen -d -m bash -c "record_market_ladder.py market_id"
+cat market_ids.txt | xargs -I market_id screen -d -m bash -c "python record_market_ladder.py market_id"
 ```
 
 Here, `market_ids.txt` is a file containing a list of market IDs, like in the following example.
