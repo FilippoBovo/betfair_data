@@ -1,6 +1,6 @@
 # Betfair Data
 
-Simple script to download live market ladder data of a single market from Betfair and store it into a CSV.
+Simple script to download live market ladder data of a single market from Betfair and store it into a Sqlite database.
 
 ## Install
 
