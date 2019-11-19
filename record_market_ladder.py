@@ -129,12 +129,14 @@ def get_event_info(
         .name
     )
 
-    competition = (
+    competitions = (
         trading
         .betting
-        .list_competitions(filter=market_filter)[0]
-        .competition
-        .name
+        .list_competitions(filter=market_filter)
+    )
+    competition = (
+        competitions[0].competition.name if len(competitions) > 0
+        else "Unknown-Competition"
     )
 
     return event_type, event, competition
@@ -355,13 +357,14 @@ def insert_in_available_to_back_table(
     """
     date_time_str = date_time.strftime("%Y-%m-%d %H:%M:%S.%f")
 
-    cursor.execute(
-        "INSERT INTO available_to_back ("
-        "   'date_time', 'selection', 'price', 'size'"
-        ") "
-        "VALUES ('{}', '{}', {:.2f}, {:.2f})"
-        .format(date_time_str, selection, price, size)
-    )
+    if price != 0:
+        cursor.execute(
+            "INSERT INTO available_to_back ("
+            "   'date_time', 'selection', 'price', 'size'"
+            ") "
+            "VALUES ('{}', '{}', {:.2f}, {:.2f})"
+            .format(date_time_str, selection, price, size)
+        )
 
 
 def insert_in_available_to_lay_table(
@@ -382,13 +385,14 @@ def insert_in_available_to_lay_table(
     """
     date_time_str = date_time.strftime("%Y-%m-%d %H:%M:%S.%f")
 
-    cursor.execute(
-        "INSERT INTO available_to_lay ("
-        "   'date_time', 'selection', 'price', 'size'"
-        ") "
-        "VALUES ('{}', '{}', {:.2f}, {:.2f})"
-        .format(date_time_str, selection, price, size)
-    )
+    if price != 0:
+        cursor.execute(
+            "INSERT INTO available_to_lay ("
+            "   'date_time', 'selection', 'price', 'size'"
+            ") "
+            "VALUES ('{}', '{}', {:.2f}, {:.2f})"
+            .format(date_time_str, selection, price, size)
+        )
 
 
 def insert_in_traded_volume_table(
@@ -409,13 +413,14 @@ def insert_in_traded_volume_table(
     """
     date_time_str = date_time.strftime("%Y-%m-%d %H:%M:%S.%f")
 
-    cursor.execute(
-        "INSERT INTO traded_volume ("
-        "   'date_time', 'selection', 'price', 'size'"
-        ") "
-        "VALUES ('{}', '{}', {:.2f}, {:.2f})"
-        .format(date_time_str, selection, price, size)
-    )
+    if price != 0:
+        cursor.execute(
+            "INSERT INTO traded_volume ("
+            "   'date_time', 'selection', 'price', 'size'"
+            ") "
+            "VALUES ('{}', '{}', {:.2f}, {:.2f})"
+            .format(date_time_str, selection, price, size)
+        )
 
 
 def data_collection_pipeline() -> str:
