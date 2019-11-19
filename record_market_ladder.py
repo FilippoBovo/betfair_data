@@ -12,6 +12,7 @@ import sqlite3
 import tempfile
 import time
 from typing import Dict, Tuple
+import zipfile
 
 import betfairlightweight as bfl
 from betfairlightweight.exceptions import APIError
@@ -482,6 +483,7 @@ def data_collection_pipeline() -> str:
         event_type, event, competition, market_name, market_start_time
     )
     output_sqlite_file = os.path.join(output_dir, output_file_name + '.db')
+    output_zip_file = os.path.join(output_dir, output_file_name + '.zip')
 
     # Market stream
     logger.info("Initialising output queue")
@@ -593,7 +595,12 @@ def data_collection_pipeline() -> str:
     cursor.close()
     connection.close()
 
-    return output_sqlite_file
+    logger.info("Compressing the Sqlite file into ZIP file %s", output_zip_file)
+    with zipfile.ZipFile(output_zip_file, 'w', zipfile.ZIP_DEFLATED) as zip_f:
+        zip_f.write(output_sqlite_file, os.path.basename(output_sqlite_file))
+    os.remove(output_sqlite_file)
+
+    return output_zip_file
 
 
 if __name__ == "__main__":
