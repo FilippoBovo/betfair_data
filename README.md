@@ -1,6 +1,6 @@
 # Betfair Data
 
-Simple script to download live market ladder data of a single market from Betfair and store it into an SQLite database.
+Simple script to download live market ladder data of a single market from Betfair and store it into an SQLite database. In addition, you can convert the downloaded data into a Parquet file, which has a much smaller size and faster loading times.
 
 ## Install
 
@@ -57,3 +57,22 @@ Here, `market_ids.txt` is a file containing a list of market IDs, like in the fo
 
 There will be one recording task for each market ID in the list.
 
+To convert a zipped SQL file outputed by the `record_market_ladder.py` script to a Parquet file, which is much smaller in size and has faster loading times, you can use the `sql_to_parquet.py` script.
+
+```shell
+python sql_to_parquet.py file.zip
+```
+
+Here, `file.zip` is the zipped SQL file outputed by the `record_market_ladder.py` script.
+
+For more information on how to use the script, you may use the help flag.
+
+```shell
+python sql_to_parquet.py --help
+```
+
+To convert multiple files in a folder, you can using the following conventient command.
+
+```shell
+find <folder_with_zipped_sql_files> -name "*.zip" -type f -print0 | xargs -0 -I file python sql_to_parquet.py file
+```

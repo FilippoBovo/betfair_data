@@ -432,8 +432,7 @@ def data_collection_pipeline() -> str:
     """
     logging.basicConfig(
         format='%(levelname)-8s | %(asctime)s | %(name)s:  %(message)s',
-        level=logging.INFO,
-        # stream=sys.stdout
+        level=logging.INFO
     )
 
     market_id, output_dir, conflate_ms, no_virtual_bets, allow_inplay,\
